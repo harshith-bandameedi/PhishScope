@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎣 PhishScope
+# PhishScope
 
 **A phishing-URL triage engine that thinks like a SOC analyst.**
 
@@ -12,24 +12,27 @@
 
 ---
 
-## What it does
+## Overview
 
 PhishScope analyzes a URL the way an analyst validates an indicator during triage: it runs a
 battery of **heuristic checks**, cross-references the URL against the **Google Safe Browsing API**,
 and combines both into a weighted risk score with a clear verdict and severity-grouped findings.
 
-It mirrors the IOC-validation workflow I run in a live SOC — turning "is this link safe?" into a
-fast, evidence-backed decision.
+It automates the IOC-validation workflow I run in a live SOC — turning "is this link safe?"
+into a fast, evidence-backed decision instead of a gut call.
+
+Most beginner phishing detectors stop at regex. PhishScope adds a **live reputation engine** on
+top, so a confirmed-malicious URL is caught even when the static heuristics alone wouldn't flag it.
 
 ## Detection signals
 
-PhishScope inspects each URL for the following indicators, each contributing to a weighted score:
+Each indicator contributes to a weighted score; together they produce the verdict.
 
 | Signal | Severity | Why it matters |
 |---|---|---|
 | Raw IP address as host | High | Legitimate sites use domains, not bare IPs |
 | `@` symbol in URL | High | Classic trick to hide the real destination |
-| Phishing keywords (`login`, `verify`, `account`, …) | High | Common lures in credential-harvesting pages |
+| Phishing keywords (`login`, `verify`, `account`, `signin`, `secure`, …) | High | Common lures in credential-harvesting pages |
 | Suspicious TLDs (`.tk`, `.ml`, `.ga`, `.cf`) | Medium | Free TLDs heavily abused for phishing |
 | URL shorteners (`bit.ly`, `tinyurl`, …) | Medium | Hide the true landing page |
 | Encoded characters (`%`) | Medium | Used to obscure readable text |
@@ -38,7 +41,7 @@ PhishScope inspects each URL for the following indicators, each contributing to 
 | Excessive length / multiple hyphens / digit mixing | Low | Weak signals of lookalike or spoofed domains |
 | **Google Safe Browsing match** | Critical | Confirmed malware / social-engineering — forces max score |
 
-Findings roll up into a verdict: **Low → Medium → High → Very High Risk.**
+Verdict tiers: **Low → Medium → High → Very High Risk.**
 
 ## Setup
 
@@ -59,25 +62,75 @@ export GSB_API_KEY="your_api_key_here"
 
 ```bash
 python phishing_detector.py
-# Enter the URL: http://secure-login-update.tk/account/verify
+# Enter the URL: http://paypal-account-verify.tk/secure-login@signin
 ```
 
 ## Sample output
 
+**A confirmed phishing URL** — the Google Safe Browsing match forces a maximum score:
+
 ```console
-================ PHISHING URL DETECTOR ================
-URL     : http://secure-login-update.tk/account/verify
-Score   : 12
-Verdict : Very High Risk
+  +---------------------------------------------------+
+  |            P H I S H S C O P E   v1                |
+  |        Phishing URL Triage Engine . SOC           |
+  +---------------------------------------------------+
 
-[High]   Phishing keyword detected: login / verify / account
-[Medium] Suspicious TLD detected: .tk
-[Medium] HTTP used instead of HTTPS
+  [*] Target   : http://paypal-account-verify.tk/secure-login@signin
+  [*] Scanned  : 2025-06-07 14:32:10
+  [*] Engines  : 11 heuristics + Google Safe Browsing
 
-Recommendation:
-  Strong phishing indicators detected. Do not click this URL.
-=======================================================
+  ---------------------------------------------------------
+   RISK SCORE   100 / 100   [##########]   VERY HIGH RISK
+  ---------------------------------------------------------
+
+  [!] HIGH      (5)
+      - Google Safe Browsing: SOCIAL_ENGINEERING (ANY_PLATFORM)
+      - '@' symbol detected: may hide the real destination
+      - Phishing keywords: account, verify, secure, login, signin
+
+  [~] MEDIUM    (2)
+      - HTTP used instead of HTTPS
+      - Suspicious TLD detected: .tk
+
+  [-] LOW       (1)
+      - Multiple hyphens detected in URL
+
+  [+] PASSED    (3)
+      - URL length looks normal
+      - No encoded characters detected
+      - Hostname is a domain, not a raw IP
+
+  ---------------------------------------------------------
+   VERDICT: Strong phishing indicators. DO NOT CLICK.
+  ---------------------------------------------------------
 ```
+
+**A clean URL** — every check passes and Safe Browsing comes back clear:
+
+```console
+  ---------------------------------------------------------
+   RISK SCORE   0 / 100   [          ]   LOW RISK
+  ---------------------------------------------------------
+
+  [+] PASSED    (7)
+      - HTTPS is enabled
+      - No '@' symbol detected
+      - URL length looks normal
+      - Hyphen usage is normal
+      - No encoded characters detected
+      - Hostname is a domain, not a raw IP
+      - Google Safe Browsing did not flag this URL
+
+  ---------------------------------------------------------
+   VERDICT: No obvious phishing indicators. Verify the sender anyway.
+  ---------------------------------------------------------
+```
+
+## How scoring works
+
+Each signal adds points (raw IP / `@` / keywords = high weight; TLD / shortener / encoding =
+medium; length / hyphens / digits = low). A **Google Safe Browsing** hit overrides everything and
+sets the score to 100, because a confirmed reputation match outweighs any heuristic guess.
 
 ## Roadmap
 
@@ -85,6 +138,7 @@ Recommendation:
 - [ ] Batch mode: score a file of URLs at once
 - [ ] Export findings as JSON for SIEM ingestion
 - [ ] WHOIS domain-age lookup (newly registered domains are higher risk)
+- [ ] Optional VirusTotal cross-reference
 
 ---
 
